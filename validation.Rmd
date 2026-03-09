@@ -1,0 +1,71 @@
+---
+title: "Validation"
+author: "Julia Shoobe"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# libraries
+library(Metrics)
+library(tidyverse)
+library(caret)
+
+# setwd("/data/pro00119102")
+function_files <- list.files("Validation Functions", pattern = "\\.R$", full.names = TRUE)
+invisible(lapply(function_files, source))
+```
+
+Continuous Numeric Comparison (troponin value, HEART score)
+```{r}
+trop_validation <- continuous_validation(chart, pipeline, "RESULT_NUM")
+print(trop_validation)
+
+heart_validation <- continuous_validation(chart, pipeline, "HEART")
+print(heart_validation)
+```
+
+Three Class Classification (Rule Out 1)
+```{r}
+ruleout1_validation <- three_class_validation(chart, pipeline, "EC1")
+ruleout1_validation$confusion_matrix
+ruleout1_validation$cohen_kappa
+```
+
+Binary Classification (Rule Out 2 & Rule Out 3)
+```{r}
+# Ruleout 2
+ruleout2_validation <- binary_validation(chart, pipeline, "EC2")
+ruleout2_validation$confusion_matrix
+ruleout2_validation$metrics
+
+# Ruleout 3
+ruleout3_validation <- binary_validation(chart, pipeline, "EC3")
+ruleout3_validation$confusion_matrix
+ruleout3_validation$metrics
+```
+
+Ordinal Validation (individual HEART components)
+```{r}
+# HEART history score
+history_validation <- ordinal_validation(chart, pipeline, "history_score")
+print(history_validation)
+
+# HEART EKG score
+ekg_validation <- ordinal_validation(chart, pipeline, "ekg_score")
+print(ekg_validation)
+
+# HEART age score
+age_validation <- ordinal_validation(chart, pipeline, "age_score")
+print(age_validation)
+
+# HEART risk factors score
+rf_validation <- ordinal_validation(chart, pipeline, "rf_score")
+print(rf_validation)
+
+# HEART initial troponin score
+trop_score_validation <- ordinal_validation(chart, pipeline, "trop_score")
+print(trop_score_validation)
+```
