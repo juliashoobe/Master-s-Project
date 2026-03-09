@@ -1,4 +1,4 @@
-# Master's-Project
+# Master's Project
 ## Integration of DUH EHR Data and LLM-Based Clinical Note Analysis to Determine Chest Pain CEU Protocol Eligibility
 ### Overview
 This project develops an AI-driven clinical decision support system to identify ED patients who may be eligible for the Duke University Hospital (DUH) Chest Pain Clinical Evaluation Unit (CEU) protocol. The system integrates structured EHR data and LLM-extracted components from provider notes to generate eligibility alterts that support clinician-decision making, without replacing clinical judgement. 
