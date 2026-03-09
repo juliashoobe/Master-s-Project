@@ -1,0 +1,166 @@
+---
+title: "Pipeline with Functions"
+author: "Julia Shoobe"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Load Libraries
+library(RODBC)
+library(tidyverse)
+library(httr)
+library(jsonlite)
+
+# Source all functions in `Pipeline Functions/` folder
+function_files <- list.files("Pipeline Functions", pattern = "\\.R$", full.names = TRUE)
+invisible(lapply(function_files, source))
+```
+
+# Load Datasets
+```{r load datasets}
+# Encounters data for DUH ED on/after July 1, 2024
+encounters <- read.csv("Datasets/encounters.csv", stringsAsFactors = FALSE)
+
+# lab data
+labs <- read.csv("Datasets/labs.csv", stringsAsFactors = FALSE)
+
+# Demographics data
+demographics <- read.csv("Datasets/demographics.csv", stringsAsFactors = FALSE)
+
+# Diagnosis data for ED encounter type
+diagnosis <- read.csv("Datasets/diagnosis.csv", stringsAsFactors = FALSE) |> select(-ENC_TYPE)
+
+# Conditions data 
+conditions <- read.csv("Datasets/conditions.csv", stringsAsFactors = FALSE)
+
+# Procedures data for patients who were admitted to DUH ED on/after July 1, 2024 with LAB3234
+procedures <- read.csv("Datasets/procedures.csv", stringsAsFactors = FALSE)
+
+# Med Admin data for patients who were admitted to DUH ED on/after July 1, 2024 with LAB3234
+med_admin <- read.csv("Datasets/med_admin.csv", stringsAsFactors = FALSE)
+
+# Vitals data for patients who were admitted to DUH on/after July 1, 2024 with LAB3234
+vitals <- read.csv("Datasets/vitals.csv", stringsAsFactors = FALSE)
+
+# all ED provider notes for unique ENCOUNTERIDs with LAB3234 admitted to DUH ED on/after July 1, 2024
+notes <- read.csv("Datasets/ed_provider_notes.csv", stringsAsFactors = FALSE) |> 
+  filter(REPORT_TYPE == "ED Provider Notes") |> 
+  select(PATID, ENCOUNTERID, REPORT_TEXT)
+
+# Notes without CEU Notes
+no_ceu_notes <- read.csv("Datasets/no_ceu_notes.csv", stringsAsFactors = FALSE)
+
+# MRNs
+mrn <- read.csv("Datasets/mrns.csv", stringsAsFactors = FALSE)
+```
+
+# ------------------------------------------------------------------------------
+Cohort Selection
+# ------------------------------------------------------------------------------
+```{r cohort}
+# Build encounter-level cohort with relevant troponin labs and flags
+## Make sure to remove 60 ENCOUNTERIDs used in testing (vector - `remove`)
+cohort <- create_cohort(encounters, labs, notes)
+
+patids <- cohort$PATID
+encounterids <- cohort$ENCOUNTERID
+```
+
+# ------------------------------------------------------------------------------
+Setting up Azure AI
+# ------------------------------------------------------------------------------
+## Construct Azure Endpoint URL 
+```{r azure endpoint}
+# Azure Endpoint
+endpoint <- "https://dhd-mme4lab-oa01.openai.azure.com/"
+
+# Grab key from 'keyring'
+keyring::key_set("openai_api")
+key <- keyring::key_get("openai_api")
+
+# Set up deployment's name
+deployment <- "gpt-5" # Available models: gpt-4, gpt-4o, gpt-4.1, o4-mini
+
+# Construct completions endpoint
+completions_endpoint <- paste0(
+  endpoint,
+  "openai/deployments/",
+  deployment,
+  "/chat/completions?api-version=2025-01-01-preview"
+)
+```
+
+# ------------------------------------------------------------------------------
+Exclusion Criteria
+# ------------------------------------------------------------------------------
+## Rule Out 1 - ECG Shows Evidence of Acute MI or Ischemia Pattern
+```{r}
+# Determine EC1 exclusion based on structured diagnosis and heparin administration
+structured_ec1 <- ruleout1_structured(cohort, diagnosis, med_admin)
+
+# Determine EC1 exclusion based on review of clinical notes
+notes_ec1 <- ruleout1_notes(cohort, notes)
+
+# Combine structured and note-based EC1 determinations into a single EC1 flag
+cohort_ec1 <- combine_ec1(structured_ec1, notes_ec1)
+```
+
+## Rule Out 2 - Unstable Vital Signs
+```{r}
+# Determine EC2 exclusion based on vital signs extracted from clinical notes
+ec2 <- ruleout2_notes(cohort, notes)
+```
+
+## Rule Out 3 - Uncontrollable Chest Pain Concerning for ACS
+```{r}
+# Determine EC3 exclusion based on notes describing refractory chest pain
+ec3 <- ruleout3_notes(cohort, notes)
+```
+
+# ------------------------------------------------------------------------------
+HEART Calculation
+# ------------------------------------------------------------------------------
+## History
+```{r}
+# Compute HEART history component score from note-based symptom assessment
+heart_history <- heart_history_calculation(notes, cohort)
+```
+
+## EKG
+```{r}
+# Compute HEART ECG/EKG component score from note-based ECG interpretation
+heart_ekg <- heart_ekg_calculation(notes, cohort)
+```
+
+## Age
+```{r}
+# Compute HEART age component score using patient birthdate
+heart_age <- heart_age_calculation(cohort, demographics)
+```
+
+## Risk Factors
+```{r}
+# Compute HEART risk factor component score from past medical conditions
+heart_rf <- heart_rf_calculation(cohort, conditions)
+```
+
+## Initial Troponin
+```{r}
+# Compute HEART troponin component score based on numeric troponin value
+heart_trop <- heart_trop_calculation(cohort)
+```
+
+## HEART
+```{r}
+# Combine all HEART components to calculate total HEART score per encounter
+heart <- calculate_heart(heart_history, heart_ekg, heart_age, heart_rf, heart_trop)
+```
+
+# Decision
+```{r}
+# Determine CEU eligibility and provide clinical instructions based on HEART score and EC flags
+decision <- ceu_decision(heart, cohort_ec1, ec2, ec3) 
+```
