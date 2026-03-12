@@ -16,26 +16,40 @@ ruleout1_structured <- function(cohort_df, diagnosis_df, med_admin_df) {
   # -------------------------------
   # Heparin-based rule-out
   # -------------------------------
-  # Identify encounters receiving IV heparin within 24 hours after the 
+  # Identify encounters receiving IV heparin within 6 hours after the 
   # index troponin result
+  heparin_list <- c(
+    "HEPARIN (PORCINE) IN D5W 25,000 UNIT/250 ML IV ACS/AMI",
+    "HEPARIN (PORCINE) IN D5W 25,000 UNIT/250 ML IV AFIB/VALVE",
+    "HEPARIN (PORCINE) IN D5W 25,000 UNIT/250 ML IV DVT/PE",
+    "HEPARIN (PORCINE) IN D5W 25,000 UNIT/250 ML IV OTHER",
+    "HEPARIN (PORCINE) 25,000 UNIT/250 ML (100 UNIT/ML) IN DEXTROSE 5 % IV",
+    "HEPARIN (PORCINE) IN D5W 25,000 UNIT/250 ML IV TIA/STROKE",
+    "HEPARIN (PORCINE) IN 1/2NS 25,000 UNIT/250 ML IV DVT/PE",
+    "HEPARIN (PORCINE) IN D5W 25,000 UNIT/250 ML IV PEDS"
+  )
+  
   ruleout_heparin <- cohort_df |> 
     mutate(
       result_dt = ymd_hm(paste(RESULT_DATE, RESULT_TIME))
     ) |> 
-    left_join(med_admin_df |> select(-PATID) |> 
+    left_join(med_admin_df |> 
+                select(-PATID) |> 
                 mutate(
                   medadmin_dt = ymd_hm(paste(MEDADMIN_START_DATE, MEDADMIN_START_TIME))
                 ), 
               by = "ENCOUNTERID") |> 
     filter(MEDADMIN_ROUTE == "INTRAVENOUS",
            medadmin_dt >= result_dt,
-           medadmin_dt <= result_dt + hours(24)
+           medadmin_dt <= result_dt + hours(6)
            ) |> 
     group_by(ENCOUNTERID) |> 
     summarize(
-      EC1_heparin = if_else(any(str_detect(RAW_MEDADMIN_MED_NAME, "HEPARIN")), 
+      EC1_heparin = if_else(
+        any(RAW_MEDADMIN_MED_NAME %in% heparin_list), 
                             "EC1", 
-                            "Included"),
+                            "Included"
+        ),
       .groups = "drop"
     )
   # -------------------------------
