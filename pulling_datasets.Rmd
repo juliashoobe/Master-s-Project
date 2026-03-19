@@ -1,0 +1,304 @@
+---
+title: "Pulling Datasets & Cohort Selection"
+author: "Julia Shoobe"
+date: '`r Sys.Date()`'
+output: html_document
+---
+
+# This file pulls the necessary datasets from the CRDM. It also filters for the cohort of interest -
+  1. ED admit date on/after July 1, 2024
+  2. Hospital Abbreviation = DUH
+  3. Had Lab3234
+# It pulls the following datasets:
+  1. Encounters
+  2. Labs
+  3. Demographics
+  4. Diagnosis
+  5. Procedures
+  6. Medication Administration
+  7. Vitals
+  8. Unstructured Notes
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Load Libraries
+```{r}
+library(RODBC)
+library(stringr)
+library(tidyverse)
+library(lubridate)
+library(purrr)
+library(progressr)
+```
+
+# Connect to DukeHealth Server
+```{r}
+conn <- odbcDriverConnect('driver={ODBC Driver 17 for SQL Server};server=mccsdb-prd.dhe.duke.edu;database=ACE_DATA;trusted_connection=yes')
+```
+
+# Cohort Selection
+## Encounters Table
+```{r}
+# ED Admit Date on/after July 1, 2024
+# Hospital Abbreviation = DUH
+PCOR_RSH_ENC_IP_ED_VW <- sqlQuery(conn,
+  "SELECT *
+   FROM CRDM_Views.PCOR_RSH_ENC_IP_ED_VW AS DEM
+   WHERE DEM.HOSPITAL_ABBR = 'DUH'
+     AND DEM.ED_ADM_DATE >= '2024-07-01';"
+)
+# 82071 observations
+
+write.csv(PCOR_RSH_ENC_IP_ED_VW, "Datasets/encounters.csv", row.names = FALSE)
+
+# All the encounter IDs for encounters on/after July 1, 2024 at DUH
+encounter_id <- PCOR_RSH_ENC_IP_ED_VW |> 
+  select(ENCOUNTERID)
+
+# All the unique patient IDs for patients who visited DUH on/after July 1, 2024
+patient_id <- PCOR_RSH_ENC_IP_ED_VW |> 
+  distinct(PATID)
+         # 56808 unique PATIDs
+```
+
+# Labs Table
+```{r}
+# Only include LAB3234, LAB3235, LAB3236, LAB3237 
+PCOR_RSH_LAB_VW <- sqlQuery(conn,
+  "SELECT *
+   FROM CRDM_Views.PCOR_RSH_LAB_VW DEM
+   WHERE DEM.LAB_PX IN ('LAB3234', 'LAB3235', 'LAB3236', 'LAB3237');"
+) 
+
+write.csv(PCOR_RSH_LAB_VW, "Datasets/labs.csv", row.names = FALSE)
+
+# The most recent lab date
+max(PCOR_RSH_LAB_VW$LAB_ORDER_DATE) # 2025-09-29
+
+# Only includes encounters that have LAB3234 and the encounters must be at DUH on/after July 1, 2024
+cohort <- encounter_id |> 
+  inner_join(PCOR_RSH_LAB_VW, by = "ENCOUNTERID") |> 
+  select(ENCOUNTERID, PATID, RESULT_NUM, RAW_LAB_NAME, RAW_RESULT)
+# 38725 observations
+
+write.csv(cohort, "cohort.csv", row.names = FALSE)
+
+# The unique PatientIDs from patients who had the troponin lab, 
+unique_patid_troponin <- cohort |> 
+  distinct(PATID) # 11136
+
+# unique ENCOUNTERIDs for troponin tests
+unique_encounterid_trop <- cohort |> 
+  distinct(ENCOUNTERID) # 13648
+```
+
+## Demographics Table
+```{r}
+PCOR_RSH_DEMOGRAPHIC_VW <- sqlQuery(conn,
+  "SELECT
+      DEM.PATID,
+      DEM.SEX,
+      DEM.RAW_RACE,
+      DEM.BIRTH_DATE,
+      DEM.HISPANIC,
+      DEM.RAW_PAT_PREF_LANGUAGE_SPOKEN
+   FROM CRDM_Views.PCOR_RSH_DEMOGRAPHIC_VW DEM;")
+
+
+# demographics for unique PATIDs
+dem_unique <- PCOR_RSH_DEMOGRAPHIC_VW |> 
+  semi_join(patient_id, by = "PATID")
+
+write.csv(dem_unique, "Datasets/demographics.csv", row.names = FALSE)
+```
+
+## Diagnostics Table
+```{r}
+PCOR_RSH_DIAGNOSIS_VW <- sqlQuery(conn,
+  "SELECT
+      DEM.ENCOUNTERID,
+      DEM.ENC_TYPE,
+      DEM.DX
+    FROM CRDM_Views.PCOR_RSH_DIAGNOSIS_VW DEM
+    WHERE DEM.ENC_TYPE = 'ED';"
+  )
+
+write.csv(PCOR_RSH_DIAGNOSIS_VW, "Datasets/diagnosis.csv", row.names = FALSE)
+```
+
+## Conditions Table
+```{r}
+PCOR_RSH_CONDITION_VW <- sqlQuery(conn,
+  "SELECT
+      DEM.PATID,
+      DEM.ENCOUNTERID,
+      DEM.CONDITION,
+      DEM.REPORT_DATE,
+      DEM.RESOLVE_DATE,
+      DEM.ONSET_DATE
+    FROM CRDM_Views.PCOR_RSH_CONDITION_VW DEM
+  ")
+
+write.csv(PCOR_RSH_CONDITION_VW, "Datasets/conditions.csv", row.names = FALSE)
+```
+
+```{r}
+patids <- unique(unique_patid_troponin$PATID)
+chunk_size <- 1000
+
+# Batch IDs
+patid_chunks <- split(patids, 
+                      ceiling(seq_along(patids) / chunk_size)
+                      )
+```
+
+# Procedures Table
+```{r}
+handlers("txtprogressbar")
+
+PCOR_RSH_PROCEDURE_VW <- with_progress({
+  p <- progressor(along = patid_chunks)
+  
+  map_dfr(patid_chunks, function(chunk) {
+    p()
+  
+  chunk <- gsub("'", "''", chunk)
+  chunk_sql <- paste0("'", chunk, "'", collapse = ",")
+  
+  sqlQuery(
+    conn,
+    paste0(
+      "
+      SELECT
+          DEM.PATID,
+          DEM.ENCOUNTERID,
+          DEM.PX
+      FROM CRDM_Views.PCOR_RSH_PROCEDURE_VW DEM
+      WHERE DEM.PATID IN (", chunk_sql, ");
+      "
+    )
+  )
+  })
+})
+
+write.csv(PCOR_RSH_PROCEDURE_VW, "Datasets/procedures.csv", row.names = FALSE)
+```
+
+# Medication Administration Table
+```{r}
+ids <- cohort$ENCOUNTERID
+
+id_list <- paste(sprintf("'%s'", ids), collapse = ", ")
+
+query <- sprintf("
+    SELECT
+      ENCOUNTERID,
+      PATID,
+      MEDADMIN_ROUTE,
+      RAW_MEDADMIN_MED_NAME,
+      MEDADMIN_START_DATE,
+      MEDADMIN_START_TIME
+   FROM CRDM_Views.PCOR_RSH_MED_ADMIN_VW
+   WHERE ENCOUNTERID IN (%s);
+  ", id_list)
+
+med_admin <- sqlQuery(conn, query)
+
+write.csv(med_admin, "Datasets/med_admin.csv", row.names = FALSE)
+```
+
+# Vitals Table
+```{r}
+PCOR_RSH_VITAL_VW <- with_progress({
+  p <- progressor(along = patid_chunks)
+  
+  map_dfr(patid_chunks, function(chunk) {
+    p()
+  
+    # Build SQL IN clause for chunk
+    chunk <- gsub("'", "''", chunk)
+    chunk_sql <- paste0("'", chunk, "'", collapse = ",")
+  
+    # Query database
+    sqlQuery(
+      conn,
+      paste0(
+        "
+        SELECT
+          ENCOUNTERID, 
+          PATID,
+          SYSTOLIC,
+          DIASTOLIC
+          FROM CRDM_Views.PCOR_RSH_VITAL_VW
+      WHERE PATID IN (", chunk_sql, ");
+        "
+      )
+    )
+  })
+})
+
+write.csv(PCOR_RSH_VITAL_VW, "Datasets/vitals.csv", row.names = FALSE)
+```
+
+## Notes Table
+```{r}
+encounterids <- unique(unique_encounterid_trop$ENCOUNTERID)
+
+# Batch IDs
+encounterid_chunks <- split(encounterids, ceiling(seq_along(encounterids) / 100))
+
+notes <- with_progress({
+  p <- progressor(along = encounterid_chunks)
+  
+  map_dfr(encounterid_chunks, function(chunk) {
+    p()
+    
+    chunk <- gsub("'", "''", chunk)
+    chunk_sql <- paste0("'", chunk, "'", collapse = ",")
+    
+    query <- paste0(
+      "SELECT * FROM CRDM_Views.PCOR_RSH_NOTES_VW ",
+      "WHERE ENCOUNTERID IN (", chunk_sql, ");"
+    )
+    
+    dat <- sqlQuery(conn, query, stringsAsFactors = FALSE)
+    
+    dat
+  })
+})
+
+unique(notes$REPORT_TYPE)
+
+matches <- grepl("ED", as.character(notes$REPORT_TYPE), fixed = TRUE)
+notes[matches, ]
+
+
+write.csv(notes, "notes.csv", row.names = FALSE)
+notes_data <- read.csv("Datasets/notes.csv", stringsAsFactors = FALSE)
+# query_preview <- "SELECT TOP 100 * FROM CRDM_Views.PCOR_RSH_NOTES_VW;"
+# notes_preview <- sqlQuery(conn, query_preview, stringsAsFactors = FALSE)
+
+ed_provider_notes <- notes_data |> 
+  filter(REPORT_TYPE == "ED Provider Notes")
+
+write.csv(ed_provider_notes, "Datasets/ed_provider_notes.csv", row.names = FALSE)
+```
+
+# MRN Table
+```{r}
+ids <- cohort$PATID
+
+patid_list <- paste(sprintf("'%s'", ids), collapse = ", ")
+
+query <- sprintf("
+    SELECT DEM.PATID, DEM.MRN
+   FROM CRDM_Views.PCOR_RSH_MRN_XREF_VW AS DEM
+   WHERE DEM.PATID IN (%s);
+  ", patid_list)
+
+PCOR_RSH_MRN_XREF_VW <- sqlQuery(conn, query)
+
+write.csv(PCOR_RSH_MRN_XREF_VW, "Datasets/mrns.csv", row.names = FALSE)
+```
