@@ -1,32 +1,32 @@
 binary_validation <- function(chart_df, pipeline_df, variable) {
   
+  vars <- prepare_validation_data(chart_df, pipeline_df, variable)
+  
+  all_levels <- union(unique(vars$chart), unique(vars$pipe))
+  
+  chart_var <- factor(vars$chart, levels = all_levels)
+  pipe_var <- factor(vars$pipe, levels = all_levels)
+  
   # confusion matrix 
   cm <- confusionMatrix(
-    data = pipeline_df[[variable]], 
-    reference = chart_df[[variable]]
-  )
-  
-  # sensitivity
-  sensitivity <- cm$byClass["Sensitivity"]
-  
-  # specificity
-  specificity <- cm$byClass["Specificity"]
-  
-  # ppv
-  ppv <- cm$byClass["Pos Pred Value"]
-  
-  # npv
-  npv <- cm$byClass["Neg Pred Value"]
-  
-  metrics <- data.frame(
-    Sensitivity = sensitivity,
-    Specificity = specificity,
-    PPV = ppv,
-    NPV = npv
+    data = pipe_var, 
+    reference = chart_var
   )
   
   results <- list(
-    metrics = metrics,
+    metrics = data.frame(
+      # sensitivity
+      Sensitivity = cm$byClass["Sensitivity"],
+      
+      # specificity
+      Specificity = cm$byClass["Specificity"],
+      
+      # positive predictive value
+      PPV = cm$byClass["Pos Pred Value"],
+      
+      # negative predictive value
+      NPV = cm$byClass["Neg Pred Value"]
+    ),
     confusion_matrix = cm$table
   )
   
