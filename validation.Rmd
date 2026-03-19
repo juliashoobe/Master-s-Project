@@ -12,10 +12,16 @@ knitr::opts_chunk$set(echo = TRUE)
 library(Metrics)
 library(tidyverse)
 library(caret)
+library(irr)
 
 # setwd("/data/pro00119102")
 function_files <- list.files("Validation Functions", pattern = "\\.R$", full.names = TRUE)
 invisible(lapply(function_files, source))
+
+# manual validation data
+chart <- read.table("Datasets/validation_data.txt", header = TRUE, sep = "\t", stringsAsFactors = FALSE)
+
+pipeline <- read.csv("Datasets/validation_decision.csv", stringsAsFactors = FALSE)
 ```
 
 Continuous Numeric Comparison (troponin value, HEART score)
@@ -68,4 +74,10 @@ print(rf_validation)
 # HEART initial troponin score
 trop_score_validation <- ordinal_validation(chart, pipeline, "trop_score")
 print(trop_score_validation)
+```
+
+Final Multiclass Decision
+```{r}
+final_validation <- final_multiclass_validation(chart, pipeline)
+print(final_validation)
 ```
