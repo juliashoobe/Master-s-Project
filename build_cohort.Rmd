@@ -1,0 +1,36 @@
+---
+title: "Build Cohort"
+author: "Julia Shoobe"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r}
+library(RODBC)
+library(tidyverse)
+library(httr)
+library(jsonlite)
+
+function_files <- list.files("Pipeline Functions", pattern = "\\.R$", full.names = TRUE)
+invisible(lapply(function_files, source))
+```
+
+```{r}
+validation_ids <- read.csv("Datasets/validation_ids.csv", stringsAsFactors = FALSE)
+
+encounters <- read.csv("Datasets/encounters.csv", stringsAsFactors = FALSE) |> 
+  filter(ENCOUNTERID %in% validation_ids$ENCOUNTERID)
+
+labs <- read.csv("Datasets/labs.csv", stringsAsFactors = FALSE) |> 
+  filter(ENCOUNTERID %in% validation_ids$ENCOUNTERID)
+
+notes <- read.csv("Datasets/no_ceu_notes.csv", stringsAsFactors = FALSE) |> 
+  filter(ENCOUNTERID %in% validation_ids$ENCOUNTERID)
+```
+
+```{r}
+validation_cohort <- create_cohort(validation_ids$ENCOUNTERID, encounters, labs, notes)
+```
