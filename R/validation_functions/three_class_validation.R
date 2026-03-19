@@ -1,9 +1,16 @@
 three_class_validation <- function(chart_df, pipeline_df, variable) {
   
+  vars <- prepare_validation_data(chart_df, pipeline_df, variable)
+  
+  all_levels <- c("EC1", "Included", "No EKG result found.")
+  
+  chart_var <- factor(vars$chart, levels = all_levels)
+  pipe_var <- factor(vars$pipe, levels = all_levels)
+  
   # confusion matrix
   cm <- confusionMatrix(
-    data = pipeline_df[[variable]], 
-    reference = chart_df[[variable]]
+    data = pipe_var,
+    reference = chart_var
     )
 
   # cohen's kappa
