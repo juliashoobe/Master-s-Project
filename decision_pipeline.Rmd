@@ -163,4 +163,6 @@ heart <- calculate_heart(heart_history, heart_ekg, heart_age, heart_rf, heart_tr
 ```{r}
 # Determine CEU eligibility and provide clinical instructions based on HEART score and EC flags
 decision <- ceu_decision(heart, cohort_ec1, ec2, ec3) 
+
+write.csv(decision, "Datasets/decision.csv", row.names = FALSE)
 ```
