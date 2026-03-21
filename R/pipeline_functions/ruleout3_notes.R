@@ -1,4 +1,4 @@
-uleout3_notes <- function(cohort_df, notes_df) {
+ruleout3_notes <- function(cohort_df, notes_df) {
   
   # -------------------------------
   # Step 0: Define EC3 LLM Prompt
