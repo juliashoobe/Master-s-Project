@@ -1,10 +1,9 @@
-create_cohort <- function(ids, encounters_df, labs_df, notes_df) {
+create_cohort <- function(encounters_df, labs_df, notes_df) {
   
   # Step 1: Keep only high-sensitivity troponin labs relevant to protocol
   # (baseline, 1-hour, 3-hour, and retest)
   lab_values <- labs_df |> 
     filter(
-      ENCOUNTERID %in% ids &
       RAW_LAB_NAME %in% c("hsTnI Baseline", "hsTnI 1 hr", "hsTnI 3 hr", 
                           "hsTnI Retest")
     )
@@ -21,8 +20,8 @@ create_cohort <- function(ids, encounters_df, labs_df, notes_df) {
   
   # Step 3: Build cohort
   cohort <- encounters_df |> 
+    filter(ENCOUNTERID %in% notes_df$ENCOUNTERID) |> 
     select(-PATID) |> 
-    filter(ENCOUNTERID %in% ids) |> 
     
     # Restrict encounters that have qualifying troponin labs
     inner_join(lab_values, by = "ENCOUNTERID") |> 
