@@ -19,8 +19,6 @@ invisible(lapply(function_files, source))
 ```
 
 ```{r}
-validation_ids <- read.csv("Datasets/validation_ids.csv", stringsAsFactors = FALSE)
-
 encounters <- read.csv("Datasets/encounters.csv", stringsAsFactors = FALSE) |> 
   filter(ENCOUNTERID %in% validation_ids$ENCOUNTERID)
 
@@ -32,5 +30,5 @@ notes <- read.csv("Datasets/no_ceu_notes.csv", stringsAsFactors = FALSE) |>
 ```
 
 ```{r}
-validation_cohort <- create_cohort(validation_ids$ENCOUNTERID, encounters, labs, notes)
+cohort <- create_cohort(encounters, labs, notes)
 ```
